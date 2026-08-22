@@ -24,18 +24,50 @@ function App(){
   },[]);
 
   const move=async(id,dir)=>{
-    if(!confirm(dir==='forward'?'Advance this document one stage?':'Move this document back one stage?'))return;
 
-    await fetch(
-      `${API}/documents/${id}/${dir==='forward'?'advance':'back'}`,
-      {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:'{}'
+    if(
+      !window.confirm(
+        dir==='forward'
+          ?'Advance this document one stage?'
+          :'Move this document back one stage?'
+      )
+    )return;
+
+    try{
+
+      const response=await fetch(
+        `${API}/documents/${id}/${dir==='forward'?'advance':'back'}`,
+        {
+          method:'POST',
+          headers:{
+            'Content-Type':'application/json'
+          },
+          body:'{}'
+        }
+      );
+
+      if(!response.ok){
+        const err=await response.json();
+        alert(err.error||'Unable to update document.');
+        return;
       }
-    );
 
-    load();
+    }catch(err){
+
+      console.error(err);
+
+      alert('Unable to contact the server.');
+
+    }
+
+  };
+
+  // Refresh first so the list shows the previous move,
+  // then apply this move. No auto-refresh afterwards -
+  // the next Back/Advance click picks up the result.
+  const moveWithRefresh=async(id,dir)=>{
+    await load();
+    await move(id,dir);
   };
 
   const create=async e=>{
@@ -130,7 +162,7 @@ function App(){
           :
           <Documents
             docs={filtered}
-            move={move}
+            move={moveWithRefresh}
             open={setSelected}
           />
         }
@@ -264,7 +296,7 @@ function Table({docs,move,open}){
         <tbody>
 
           {docs.map(d=>(
-            <tr key={d.id}>
+            <tr key={`${d.id}-${d.current_stage}-${d.revision}`}>
 
               <td
                 onClick={()=>open(d)}
@@ -448,14 +480,34 @@ function Detail({id,close,move}){
   const [data,setData]=useState(null);
   const [file,setFile]=useState(null);
   const [rev,setRev]=useState('A');
+  const [busy,setBusy]=useState(false);
 
   const load=()=>{
-    fetch(`${API}/documents/${id}`)
+    return fetch(`${API}/documents/${id}`)
       .then(r=>r.json())
       .then(setData);
   };
 
   useEffect(load,[id]);
+
+  const doMove=async dir=>{
+
+    if(busy)return;
+
+    setBusy(true);
+
+    try{
+
+      await load();
+      await move(id,dir);
+
+    }finally{
+
+      setBusy(false);
+
+    }
+
+  };
 
   if(!data){
     return (
@@ -520,10 +572,8 @@ function Detail({id,close,move}){
           {d.current_stage!=='Receive' &&
             <button
               className="backBtn"
-              onClick={()=>{
-                move(id,'back');
-                load();
-              }}
+              disabled={busy}
+              onClick={()=>doMove('back')}
             >
               ← Back
             </button>
@@ -532,10 +582,8 @@ function Detail({id,close,move}){
           {d.current_stage!=='Archive' &&
             <button
               className="next"
-              onClick={()=>{
-                move(id,'forward');
-                load();
-              }}
+              disabled={busy}
+              onClick={()=>doMove('forward')}
             >
               Advance →
             </button>
