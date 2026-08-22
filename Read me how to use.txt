@@ -1,0 +1,10 @@
+open cmd/terminal
+location: cd "project location\backend"
+type in cmd:
+.venv\Scripts\activate
+python app.py
+
+
+location: cd "project location\frontend"
+type in cmd:
+npm run dev
