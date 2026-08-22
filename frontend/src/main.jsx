@@ -1,6 +1,6 @@
 import React,{useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
-import {LayoutDashboard,FileText,Inbox,Archive,Plus,Search,ChevronRight,Upload,Clock,Eye,Download,ArrowLeft} from 'lucide-react';
+import {LayoutDashboard,FileText,Inbox,Archive,Plus,Search,ChevronRight,Upload,Clock,Eye,Download,ArrowLeft,CheckCircle,AlertCircle,X} from 'lucide-react';
 import './styles.css';
 
 const API='http://127.0.0.1:5000/api';
@@ -13,10 +13,21 @@ function App(){
   const [selected,setSelected]=useState(null);
   const [form,setForm]=useState(false);
   const [search,setSearch]=useState('');
+  const [notification,setNotification]=useState(null);
+
+  const showNotification=(message,type='success')=>{
+    setNotification({message,type});
+    setTimeout(()=>setNotification(null),3000);
+  };
 
   const load=async()=>{
-    setDash(await (await fetch(API+'/dashboard')).json());
-    setDocs(await (await fetch(API+'/documents')).json());
+    try{
+      setDash(await (await fetch(API+'/dashboard')).json());
+      setDocs(await (await fetch(API+'/documents')).json());
+    }catch(err){
+      console.error('Failed to load data:',err);
+      showNotification('Failed to load data','error');
+    }
   };
 
   useEffect(()=>{
@@ -48,26 +59,26 @@ function App(){
 
       if(!response.ok){
         const err=await response.json();
-        alert(err.error||'Unable to update document.');
+        showNotification(err.error||'Unable to update document.','error');
         return;
       }
+
+      const successMsg=dir==='forward'?'Document advanced successfully':'Document moved back successfully';
+      showNotification(successMsg,'success');
 
     }catch(err){
 
       console.error(err);
-
-      alert('Unable to contact the server.');
+      showNotification('Unable to contact the server.','error');
 
     }
 
   };
 
-  // Refresh first so the list shows the previous move,
-  // then apply this move. No auto-refresh afterwards -
-  // the next Back/Advance click picks up the result.
+  // Move first, THEN refresh to get updated data immediately
   const moveWithRefresh=async(id,dir)=>{
-    await load();
     await move(id,dir);
+    await load();
   };
 
   const create=async e=>{
@@ -75,14 +86,20 @@ function App(){
 
     const d=Object.fromEntries(new FormData(e.target));
 
-    await fetch(API+'/documents',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(d)
-    });
+    try{
+      await fetch(API+'/documents',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(d)
+      });
 
-    setForm(false);
-    load();
+      setForm(false);
+      load();
+      showNotification('Document received successfully','success');
+    }catch(err){
+      console.error(err);
+      showNotification('Failed to create document','error');
+    }
   };
 
   const filtered=docs.filter(d=>
@@ -94,6 +111,14 @@ function App(){
 
   return (
     <div className="app">
+
+      {notification &&
+        <Notification
+          message={notification.message}
+          type={notification.type}
+          onClose={()=>setNotification(null)}
+        />
+      }
 
       <aside>
         <div className="brand">
@@ -114,7 +139,10 @@ function App(){
             <button
               key={n}
               className={tab===n?'active':''}
-              onClick={()=>setTab(n)}
+              onClick={()=>{
+                setTab(n);
+                setSelected(null);
+              }}
             >
               <I size={18}/>
               <span>{n}</span>
@@ -180,9 +208,34 @@ function App(){
           id={selected.id}
           close={()=>setSelected(null)}
           move={move}
+          onMoveSuccess={()=>{
+            load();
+            showNotification('Document updated successfully','success');
+          }}
         />
       }
 
+    </div>
+  );
+}
+
+function Notification({message,type,onClose}){
+  return (
+    <div className={`notification ${type}`}>
+      <div className="notificationContent">
+        {type==='success'?
+          <CheckCircle size={18}/>
+          :
+          <AlertCircle size={18}/>
+        }
+        <span>{message}</span>
+      </div>
+      <button
+        className="notificationClose"
+        onClick={onClose}
+      >
+        <X size={16}/>
+      </button>
     </div>
   );
 }
@@ -475,7 +528,7 @@ function Modal({create,close}){
   );
 }
 
-function Detail({id,close,move}){
+function Detail({id,close,move,onMoveSuccess}){
 
   const [data,setData]=useState(null);
   const [file,setFile]=useState(null);
@@ -485,10 +538,15 @@ function Detail({id,close,move}){
   const load=()=>{
     return fetch(`${API}/documents/${id}`)
       .then(r=>r.json())
-      .then(setData);
+      .then(setData)
+      .catch(err=>{
+        console.error('Failed to load document details:',err);
+      });
   };
 
-  useEffect(load,[id]);
+  useEffect(()=>{
+    load();
+  },[id]);
 
   const doMove=async dir=>{
 
@@ -498,8 +556,9 @@ function Detail({id,close,move}){
 
     try{
 
-      await load();
       await move(id,dir);
+      await load();
+      onMoveSuccess();
 
     }finally{
 
@@ -513,7 +572,7 @@ function Detail({id,close,move}){
     return (
       <div className="overlay">
         <div className="drawer">
-          Loading…
+          <div className="loading">Loading…</div>
         </div>
       </div>
     );
@@ -530,16 +589,21 @@ function Detail({id,close,move}){
     fd.append('file',file);
     fd.append('revision',rev);
 
-    await fetch(
-      `${API}/documents/${id}/upload`,
-      {
-        method:'POST',
-        body:fd
-      }
-    );
+    try{
+      await fetch(
+        `${API}/documents/${id}/upload`,
+        {
+          method:'POST',
+          body:fd
+        }
+      );
 
-    setFile(null);
-    load();
+      setFile(null);
+      load();
+    }catch(err){
+      console.error('Upload failed:',err);
+      alert('Failed to upload file');
+    }
   };
 
   return (
@@ -552,6 +616,7 @@ function Detail({id,close,move}){
           <button
             className="iconBtn"
             onClick={close}
+            title="Go back to documents"
           >
             <ArrowLeft size={18}/>
           </button>
