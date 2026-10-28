@@ -87,18 +87,24 @@ function App(){
     const d=Object.fromEntries(new FormData(e.target));
 
     try{
-      await fetch(API+'/documents',{
+      const response=await fetch(API+'/documents',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify(d)
       });
 
+      const result=await response.json().catch(()=>({}));
+      if(!response.ok){
+        showNotification(result.error||'Failed to create document','error');
+        return;
+      }
+
       setForm(false);
-      load();
+      await load();
       showNotification('Document received successfully','success');
     }catch(err){
       console.error(err);
-      showNotification('Failed to create document','error');
+      showNotification('Unable to contact the server.','error');
     }
   };
 
